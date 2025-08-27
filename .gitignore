@@ -1,0 +1,110 @@
+# ================================
+# Python: general, bytecode & compiled files
+# ================================
+__pycache__/
+*.py[cod]
+*.so
+
+# ================================
+# Python: virtual environments
+# ================================
+# Common virtual environment folders
+venv/
+env/
+.venv/
+# If you want to keep .env files, adjust this rule
+.env
+
+# ================================
+# Python: package management leftovers
+# ================================
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ================================
+# Python: testing & coverage
+# ================================
+.coverage
+.tox/
+.nox/
+.pytest_cache/
+
+# ================================
+# Python: Jupyter Notebooks
+# ================================
+.ipynb_checkpoints
+
+# ================================
+# Project-specific Python scripts (not to commit)
+# ================================
+crear_embeddings.py
+delete_cache.py
+create.py
+
+# ================================
+# Flask-specific files
+# ================================
+instance/
+.webassets-cache
+
+# ================================
+# Configuration files
+# ================================
+*.cfg
+
+# ================================
+# Log files
+# ================================
+*.log
+/logs
+
+# ================================
+# Databases
+# ================================
+*.db
+*.sqlite
+
+# ================================
+# Google Cloud-specific files
+# ================================
+.gcloudignore
+
+# ================================
+# Development/IDE/editor files
+# ================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*.iml
+
+# ================================
+# Build & distribution artifacts
+# ================================
+dist/
+build/
+*.egg-info/
+
+# ================================
+# Documentation build artifacts
+# ================================
+docs/_build/
+examples/
+
+# ================================
+# System temp files
+# ================================
+.DS_Store
+Thumbs.db
+
+# ================================
+# Environment files
+# ================================
+.env.*      # Ignore all env files
+!.env.example  # Keep the example env file under version control
+
+# ================================
+# Project-specific ignores
+# ================================
+/notebooks
+/app/frontend
