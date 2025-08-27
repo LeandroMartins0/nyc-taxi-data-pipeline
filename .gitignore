@@ -90,6 +90,7 @@ build/
 # ================================
 docs/_build/
 examples/
+*.pdf
 
 # ================================
 # System temp files
