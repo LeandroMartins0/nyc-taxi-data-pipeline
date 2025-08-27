@@ -1,0 +1,17 @@
+[project]
+name = "nyc-taxi-data-pipeline"
+version = "1.0.0"
+description = "Blank for now"
+authors = [
+    {name = "Leandro Gonçalves",email = "leandroa448@gmail.com"}
+]
+license = {text = "None"}
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
