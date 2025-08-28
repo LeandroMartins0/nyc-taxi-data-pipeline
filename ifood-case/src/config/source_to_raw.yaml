@@ -1,0 +1,11 @@
+scraper:
+  nyc_tlc:
+    trip_records:
+      years: [2023]
+      months: ["January"]
+      base_url: "https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page"
+      headless: false
+      timeout: 30000
+     # limit: 1
+      retries: 3
+      download_dir: "datalake/raw/external/web_scraping/nyc_tlc/trip_records"
