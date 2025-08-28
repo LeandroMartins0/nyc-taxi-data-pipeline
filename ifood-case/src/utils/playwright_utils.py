@@ -6,7 +6,6 @@ from playwright.sync_api import sync_playwright
 logging.basicConfig(level=logging.INFO, format="%(asctime)s — %(levelname)s — %(message)s")
 logger = logging.getLogger(__name__)
 
-
 def fetch_taxi_trip_links(
     years: list[int],
     months: Optional[list[str]] = None,
@@ -31,7 +30,6 @@ def fetch_taxi_trip_links(
     Yields:
         dict: Metadata containing year, title, url, and downloaded filename.
     """
-
     # Map English month names to numerical format
     month_map = {
         "January": "01", "February": "02", "March": "03", "April": "04",
@@ -84,13 +82,19 @@ def fetch_taxi_trip_links(
 
                                 # Month filter: check if URL matches selected year-month
                                 if months:
-                                    valid = False
+                                    month_matched = False
                                     for m in months:
-                                        if f"{year}-{month_map[m]}" in url:
-                                            valid = True
+                                        month_num = month_map.get(m)
+                                        if month_num and f"{year}-{month_num}" in url:
+                                            month_matched = True
                                             break
-                                    if not valid:
+                                    if not month_matched:
                                         continue
+
+                                # Check for valid trip record types
+                                valid_types = ["yellow_tripdata", "green_tripdata", "fhv_tripdata", "fhvhv_tripdata"]
+                                if not any(t in url for t in valid_types):
+                                    continue
 
                                 logger.info(f"[CLICK] {year} — {title} — {url} (attempt {attempt})")
                                 link.scroll_into_view_if_needed()
@@ -126,15 +130,14 @@ def fetch_taxi_trip_links(
             elapsed = time.time() - start_time
             logger.info(f"Extraction finished in {elapsed:.2f} seconds.")
 
+if __name__ == "__main__":
+    results = list(fetch_taxi_trip_links(
+        years=[2023],
+        months=["January", "February"],  # Only process January and February
+        base_url="https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page",
+        headless=False
+    ))
 
-# if __name__ == "__main__":
-#     results = list(fetch_taxi_trip_links(
-#         years=[2023],
-#         months=["January", "February"],  # Example: only Jan & Feb
-#         base_url="https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page",
-#         headless=False
-#     ))
-
-#     logger.info(f"{len(results)} datasets extracted successfully.")
-#     for r in results:
-#         logger.info(f"{r['year']} — {r['title']} — {r['filename']} — {r['url']}")
+    logger.info(f"{len(results)} datasets extracted successfully.")
+    for r in results:
+        logger.info(f"{r['year']} — {r['title']} — {r['filename']} — {r['url']}")
