@@ -24,7 +24,7 @@ def download_file(page, url: str, title: str, year: int, month: str, download_di
         year: Year of the trip record.
         month: Month of the trip record (e.g., 'January').
         download_dir: Base directory to save the parquet file and metadata (e.g., 'datalake/raw/external/web_scraping/nyc_tlc/trip_records').
-        extraction_timestamp: Timestamp for the dt=extraction folder (e.g., '2025-08-28T17-13-40').
+        extraction_timestamp: Timestamp for the dt=extraction folder (e.g., '2025-08-28T17-22-00').
         retries: Number of retry attempts.
 
     Returns:
@@ -41,17 +41,16 @@ def download_file(page, url: str, title: str, year: int, month: str, download_di
             download = dl_info.value
             filename = download.suggested_filename
 
-            # Create data lake path: datalake/raw/external/web_scraping/nyc_tlc/trip_records/dt=extraction{YYYY-MM-DDTHH-MM-SS}/{year}/{month}/{filename}
-            file_path = os.path.join(download_dir, f"dt=extraction{extraction_timestamp}", str(year), month, filename)
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-            # Save the downloaded file
-            download.save_as(file_path)
-            logger.info(f"Download saved: {file_path}")
+            # Save parquet file temporarily
+            temp_dir = os.path.join(download_dir, "temp")
+            os.makedirs(temp_dir, exist_ok=True)
+            temp_parquet_path = os.path.join(temp_dir, filename)
+            download.save_as(temp_parquet_path)
+            logger.info(f"Temporary parquet saved: {temp_parquet_path}")
 
             # Initialize Spark session to read parquet and generate hash
             spark = SparkSession.builder.appName("TaxiDataHash").getOrCreate()
-            df = spark.read.parquet(file_path)
+            df = spark.read.parquet(temp_parquet_path)
             unique_id = generate_content_hash(df)
             spark.stop()
 
@@ -64,11 +63,11 @@ def download_file(page, url: str, title: str, year: int, month: str, download_di
                 "title": title,
                 "url": url,
                 "filename": filename,
-                "file_path": file_path,
+                "file_path": os.path.join(download_dir, f"dt=extraction{extraction_timestamp}", str(year), month, filename),
                 "unique_id": unique_id
             }
 
-            # Save metadata in the data lake
+            # Save parquet and metadata in the data lake
             save_if_changed(
                 data=metadata,
                 identifier=identifier,
@@ -77,7 +76,8 @@ def download_file(page, url: str, title: str, year: int, month: str, download_di
                 year=str(year),
                 month=month,
                 file_prefix="taxi_metadata",
-                file_suffix="meta"
+                file_suffix="meta",
+                parquet_file_path=temp_parquet_path
             )
 
             return metadata
