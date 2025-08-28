@@ -13,15 +13,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s — %(levelname)s �
 logger = logging.getLogger(__name__)
 
 def load_yaml_config(config_path: str) -> dict:
-    """Carrega configurações de um arquivo YAML."""
+    """Load configurations from a YAML file."""
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
 def generate_content_hash(df: DataFrame, sample_limit: int = 1000) -> str:
     """
-    Gera um hash MD5 consistente de um DataFrame Spark.
-    Para evitar coletar datasets enormes, limita a um número de linhas (default=1000).
-    Converte todas as colunas para string, lidando com tipos complexos.
+    Generate a consistent MD5 hash of a Spark DataFrame.
+    To avoid collecting huge datasets, it is limited to a number of rows (default=1000).
+    Converts all columns to string, handling complex types.
     """
     try:
         # Log schema for debugging
@@ -40,7 +40,7 @@ def generate_content_hash(df: DataFrame, sample_limit: int = 1000) -> str:
             else:
                 select_expr.append(df[col])
         df = df.select(select_expr)
-        # Coletar linhas limitadas e ordenadas
+        # Collect limited and ordered rows
         rows = (
             df.select(*cols)
               .orderBy(*cols)
@@ -52,17 +52,17 @@ def generate_content_hash(df: DataFrame, sample_limit: int = 1000) -> str:
         content_str = json.dumps(rows, ensure_ascii=False, sort_keys=True, default=str)
         return hashlib.md5(content_str.encode("utf-8")).hexdigest()
     except Exception as e:
-        logging.error(f"Erro ao gerar hash do conteúdo Spark: {e}")
+        logging.error(f"Error generating Spark content hash: {e}")
         # Log a sample of the data for debugging
         try:
             sample_data = df.limit(5).toPandas().to_dict(orient="records")
             logging.error(f"Sample data (first 5 rows): {json.dumps(sample_data, ensure_ascii=False, default=str)}")
         except Exception as sample_e:
-            logging.error(f"Erro ao coletar amostra de dados: {sample_e}")
+            logging.error(f"Error collecting data sample: {sample_e}")
         return ""
 
 def is_same_content(filepath: str, new_hash: str) -> bool:
-    """Verifica se o hash salvo em arquivo é igual ao novo hash."""
+    """Check if the hash saved in file is equal to the new hash."""
     if not os.path.exists(filepath):
         return False
     try:
@@ -70,7 +70,7 @@ def is_same_content(filepath: str, new_hash: str) -> bool:
             old = json.load(f)
             return old.get("unique_id") == new_hash
     except Exception as e:
-        logging.warning(f"Falha ao comparar hash em {filepath}: {e}")
+        logging.warning(f"Failed to compare hash in {filepath}: {e}")
         return False
 
 def save_if_changed(
@@ -85,20 +85,20 @@ def save_if_changed(
     parquet_file_path: str = None
 ) -> None:
     """
-    Salva metadados e arquivo parquet no data lake.
-    Estrutura:
-      - download_dir/dt=extraction{YYYY-MM-DDTHH-MM-SS}/{year}/{month}/{filename} (parquet, sempre salvo)
-      - download_dir/dt=extraction{YYYY-MM-DDTHH-MM-SS}/{year}/{month}/metadata/{filename} (metadata, sempre salvo)
-      - download_dir/latest/{year}/{month}/{filename} (parquet, se mudou)
-      - download_dir/latest/{year}/{month}/metadata/{filename} (metadata, se mudou)
+    Save metadata and parquet file in the data lake.
+    Structure:
+      - download_dir/dt=extraction{YYYY-MM-DDTHH-MM-SS}/{year}/{month}/{filename} (parquet, always saved)
+      - download_dir/dt=extraction{YYYY-MM-DDTHH-MM-SS}/{year}/{month}/metadata/{filename} (metadata, always saved)
+      - download_dir/latest/{year}/{month}/{filename} (parquet, if changed)
+      - download_dir/latest/{year}/{month}/metadata/{filename} (metadata, if changed)
     """
-    # Cria nome do arquivo de metadados
+    # Create metadata filename
     if file_suffix:
         filename = f"{file_prefix}_{identifier}_{file_suffix}.json"
     else:
         filename = f"{file_prefix}_{identifier}.json"
 
-    # Caminhos no data lake
+    # Paths in the data lake
     extraction_metadata_path = os.path.join(download_dir, f"dt=extraction{extraction_timestamp}", year, month, "metadata", filename)
     latest_metadata_path = os.path.join(download_dir, "latest", year, month, "metadata", filename)
     extraction_parquet_path = os.path.join(download_dir, f"dt=extraction{extraction_timestamp}", year, month, data.get("filename"))
@@ -119,31 +119,31 @@ def save_if_changed(
     logging.info("changed=%s | filename=%s", changed, filename)
 
     try:
-        # Sempre salvar metadata no dt=extraction
+        # Always save metadata in dt=extraction
         with open(extraction_metadata_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
-        logging.info("Salvo em: %s", extraction_metadata_path)
+        logging.info("Saved at: %s", extraction_metadata_path)
 
-        # Sempre salvar parquet no dt=extraction
+        # Always save parquet in dt=extraction
         if parquet_file_path and os.path.exists(parquet_file_path):
             shutil.copy2(parquet_file_path, extraction_parquet_path)
-            logging.info("Parquet salvo em: %s", extraction_parquet_path)
+            logging.info("Parquet saved at: %s", extraction_parquet_path)
 
-        # Salvar no latest apenas se houve mudança
+        # Save in latest only if there was a change
         if changed:
             with open(latest_metadata_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4, ensure_ascii=False)
-            logging.info("Salvo em: %s", latest_metadata_path)
+            logging.info("Saved at: %s", latest_metadata_path)
             if parquet_file_path and os.path.exists(parquet_file_path):
                 shutil.copy2(parquet_file_path, latest_parquet_path)
-                logging.info("Parquet salvo em: %s", latest_parquet_path)
+                logging.info("Parquet saved at: %s", latest_parquet_path)
         else:
-            logging.info("Nenhuma alteração detectada. Ignorando: %s e %s", latest_metadata_path, latest_parquet_path)
+            logging.info("No changes detected. Ignoring: %s and %s", latest_metadata_path, latest_parquet_path)
 
-        # Limpar arquivo temporário
+        # Clean temporary file
         if parquet_file_path and os.path.exists(parquet_file_path):
             os.remove(parquet_file_path)
-            logging.info(f"Arquivo temporário removido: {parquet_file_path}")
+            logging.info(f"Temporary file removed: {parquet_file_path}")
 
     except Exception as e:
-        logging.error("Falha ao salvar arquivos: %s", e)
+        logging.error("Failed to save files: %s", e)
