@@ -1,39 +1,19 @@
 import logging
 import time
 import os
-import hashlib
 import json
+import re
 from typing import Optional, Generator
+from datetime import datetime
 from playwright.sync_api import sync_playwright
 from pyspark.sql import SparkSession
 from pyspark.sql import DataFrame
-from .io import save_if_changed, save_if_historical
+from .io import save_if_changed, generate_content_hash
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s — %(levelname)s — %(message)s")
 logger = logging.getLogger(__name__)
 
-def generate_content_hash(df: DataFrame, sample_limit: int = 1000) -> str:
-    """
-    Gera um hash MD5 consistente de um DataFrame Spark.
-    Para evitar coletar datasets enormes, limita a um número de linhas (default=1000).
-    """
-    try:
-        cols = sorted(df.columns)
-        # coleta linhas limitadas e ordenadas
-        rows = (
-            df.select(*cols)
-              .orderBy(*cols)
-              .limit(sample_limit)
-              .toPandas()
-              .to_dict(orient="records")
-        )
-        content_str = json.dumps(rows, ensure_ascii=False, sort_keys=True)
-        return hashlib.md5(content_str.encode("utf-8")).hexdigest()
-    except Exception as e:
-        logging.error(f"Erro ao gerar hash do conteúdo Spark: {e}")
-        return ""
-
-def download_file(page, url: str, title: str, year: int, download_dir: str, latest_dir: str, historical_dir: str, retries: int = 3) -> Optional[dict]:
+def download_file(page, url: str, title: str, year: int, month: str, download_dir: str, extraction_timestamp: str, retries: int = 3) -> Optional[dict]:
     """
     Download a single file and save its metadata.
 
@@ -42,9 +22,9 @@ def download_file(page, url: str, title: str, year: int, download_dir: str, late
         url: URL of the file to download.
         title: Title of the trip record.
         year: Year of the trip record.
-        download_dir: Directory to save the parquet file.
-        latest_dir: Directory to save latest metadata.
-        historical_dir: Directory to save historical metadata.
+        month: Month of the trip record (e.g., 'January').
+        download_dir: Base directory to save the parquet file and metadata (e.g., 'datalake/raw/external/web_scraping/nyc_tlc/trip_records').
+        extraction_timestamp: Timestamp for the dt=extraction folder (e.g., '2025-08-28T17-13-40').
         retries: Number of retry attempts.
 
     Returns:
@@ -60,7 +40,10 @@ def download_file(page, url: str, title: str, year: int, download_dir: str, late
                 link.click()
             download = dl_info.value
             filename = download.suggested_filename
-            file_path = os.path.join(download_dir, filename)
+
+            # Create data lake path: datalake/raw/external/web_scraping/nyc_tlc/trip_records/dt=extraction{YYYY-MM-DDTHH-MM-SS}/{year}/{month}/{filename}
+            file_path = os.path.join(download_dir, f"dt=extraction{extraction_timestamp}", str(year), month, filename)
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
             # Save the downloaded file
             download.save_as(file_path)
@@ -85,20 +68,14 @@ def download_file(page, url: str, title: str, year: int, download_dir: str, late
                 "unique_id": unique_id
             }
 
-            # Save metadata using IO functions
+            # Save metadata in the data lake
             save_if_changed(
                 data=metadata,
                 identifier=identifier,
-                latest_dir=latest_dir,
-                historical_dir=historical_dir,
-                file_prefix="taxi_metadata",
-                file_suffix="meta"
-            )
-            save_if_historical(
-                data=metadata,
-                identifier=identifier,
-                latest_dir=latest_dir,
-                historical_dir=historical_dir,
+                download_dir=download_dir,
+                extraction_timestamp=extraction_timestamp,
+                year=str(year),
+                month=month,
                 file_prefix="taxi_metadata",
                 file_suffix="meta"
             )
@@ -122,9 +99,7 @@ def fetch_taxi_trip_links(
     timeout: int = 30000,
     limit: Optional[int] = None,
     retries: int = 3,
-    download_dir: str = "./downloads/taxi_data",
-    latest_dir: str = "./downloads/latest",
-    historical_dir: str = "./downloads/historical"
+    download_dir: str = "datalake/raw/external/web_scraping/nyc_tlc/trip_records"
 ) -> Generator[dict, None, None]:
     """
     Extract TLC datasets (Yellow, Green, FHV, HVFHV) for selected months/years and save them locally.
@@ -137,27 +112,27 @@ def fetch_taxi_trip_links(
         timeout (int): Page timeout in ms.
         limit (Optional[int]): Maximum number of downloads per year.
         retries (int): Max retries in case of failure.
-        download_dir (str): Directory to save downloaded parquet files.
-        latest_dir (str): Directory to save latest metadata.
-        historical_dir (str): Directory to save historical metadata.
+        download_dir (str): Base directory to save downloaded parquet files and metadata.
 
     Yields:
         dict: Metadata containing year, title, url, filename, and file_path.
     """
-    # Map English month names to numerical format
+    # Map English month names to numerical format for filtering
     month_map = {
         "January": "01", "February": "02", "March": "03", "April": "04",
         "May": "05", "June": "06", "July": "07", "August": "08",
         "September": "09", "October": "10", "November": "11", "December": "12"
     }
+    # Reverse map for converting numerical months to English names
+    reverse_month_map = {v: k for k, v in month_map.items()}
     months = [m.capitalize() for m in months] if months else None
 
     start_time = time.time()
+    # Create a single timestamp for the entire pipeline run
+    extraction_timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
-    # Ensure download directories exist
+    # Ensure download directory exists
     os.makedirs(download_dir, exist_ok=True)
-    os.makedirs(latest_dir, exist_ok=True)
-    os.makedirs(historical_dir, exist_ok=True)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
@@ -195,35 +170,43 @@ def fetch_taxi_trip_links(
                         # Month filter: check if URL matches selected year-month
                         if months:
                             month_matched = False
+                            month_num = None
+                            month_name = None
                             for m in months:
                                 month_num = month_map.get(m)
                                 if month_num and f"{year}-{month_num}" in url:
                                     month_matched = True
+                                    month_name = m
                                     break
                             if not month_matched:
                                 continue
+                        else:
+                            # Extract month from URL if no months specified
+                            match = re.search(r"(\d{4})-(\d{2})", url)
+                            month_num = match.group(2) if match else "unknown"
+                            month_name = reverse_month_map.get(month_num, "unknown")
 
                         # Check for valid trip record types
                         valid_types = ["yellow_tripdata", "green_tripdata", "fhv_tripdata", "fhvhv_tripdata"]
                         if not any(t in url for t in valid_types):
                             continue
 
-                        valid_links.append((title, url))
+                        valid_links.append((title, url, month_name))
 
                     # Log found files
                     if valid_links:
                         logger.info(f"Found {len(valid_links)} trip record files for {year} {', '.join(months or ['all months'])}:")
-                        for title, url in valid_links:
+                        for title, url, _ in valid_links:
                             logger.info(f"- {title} ({url})")
                     else:
                         logger.info(f"No trip record files found for {year} {', '.join(months or ['all months'])}")
 
                     # Process downloads sequentially
                     collected = 0
-                    for title, url in valid_links:
+                    for title, url, month_name in valid_links:
                         if limit is not None and collected >= limit:
                             break
-                        result = download_file(page, url, title, year, download_dir, latest_dir, historical_dir, retries)
+                        result = download_file(page, url, title, year, month_name, download_dir, extraction_timestamp, retries)
                         if result:
                             yield result
                             collected += 1
@@ -240,12 +223,10 @@ def fetch_taxi_trip_links(
 if __name__ == "__main__":
     results = list(fetch_taxi_trip_links(
         years=[2023],
-        months=["January", "February"],
+        months=["January"],
         base_url="https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page",
         headless=False,
-        download_dir="./downloads/taxi_data",
-        latest_dir="./downloads/latest",
-        historical_dir="./downloads/historical"
+        download_dir="datalake/raw/external/web_scraping/nyc_tlc/trip_records"
     ))
 
     for r in results:
